@@ -2,109 +2,98 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import mysql.connector
 from PIL import Image, ImageTk  # Asegúrate de instalar Pillow: pip install pillow
-
-def conectar_db():
-    try:
-        conexion = mysql.connector.connect(
-            host='localhost',
-            user='root',  # Cambia esto
-            password='Doker367.',  # Cambia esto
-            database='tienda'  # Cambia esto
-        )
-        if conexion.is_connected():
-            return conexion
-    except Exception as e:
-        print(f"Error al conectar a la base de datos: {e}")
-        return None
+from modules.db_connection import conectar_db
 
 class TiendaAbarrotes:
     def __init__(self, master):
         self.master = master
         self.master.title("Tienda de Abarrotes")
-        self.master.geometry("800x600")  # Ajustar el tamaño de la ventana
+        self.master.attributes('-zoomed', True)  # Pantalla completa en Linux
         self.master.configure(bg="#f0f0f0")
-        self.navigation_stack = []  # Pila de navegación para registrar vistas anteriores
+
+        # Crear un contenedor principal con diseño de cuadrícula
+        self.main_frame = tk.Frame(self.master, bg="#f0f0f0")
+        self.main_frame.pack(fill="both", expand=True)
+
+        # Crear un diseño de cuadrícula para las secciones
+        self.nav_frame = tk.Frame(self.main_frame, bg="#333")
+        self.nav_frame.grid(row=0, column=0, columnspan=2, sticky="nsew")
+
+        self.content_frame = tk.Frame(self.main_frame, bg="#f0f0f0")
+        self.content_frame.grid(row=1, column=0, sticky="nsew")
+
+        self.sidebar_frame = tk.Frame(self.main_frame, bg="#444")
+        self.sidebar_frame.grid(row=1, column=1, sticky="nsew")
+
+        # Configurar pesos para que las secciones se expandan
+        self.main_frame.grid_rowconfigure(1, weight=1)
+        self.main_frame.grid_columnconfigure(0, weight=3)
+        self.main_frame.grid_columnconfigure(1, weight=1)
 
         # Barra de navegación
-        self.nav_frame = tk.Frame(master, bg="#333")
-        self.nav_frame.pack(fill='x')
         self.label = tk.Label(self.nav_frame, text="Tienda de Abarrotes", font=("Arial", 19), bg="#333", fg="white")
         self.label.pack(side=tk.LEFT, padx=10)
-        self.boton_ver_productos = tk.Button(self.nav_frame, text="Ver Productos", command=self.mostrar_productos, bg="#444", fg="white")
+
+        self.boton_ver_productos = tk.Button(self.nav_frame, text="Ver Productos", command=self.mostrar_productos, bg="#444", fg="white", font=("Arial", 12))
         self.boton_ver_productos.pack(side=tk.LEFT, padx=5)
-        self.boton_ver_categorias = tk.Button(self.nav_frame, text="Ver Categorías", command=self.mostrar_categorias, bg="#444", fg="white")
+
+        self.boton_ver_categorias = tk.Button(self.nav_frame, text="Ver Categorías", command=self.mostrar_categorias, bg="#444", fg="white", font=("Arial", 12))
         self.boton_ver_categorias.pack(side=tk.LEFT, padx=5)
-        self.boton_regresar = tk.Button(self.nav_frame, text="Regresar", command=self.regresar, bg="#444", fg="white", state="disabled")
-        self.boton_regresar.pack(side=tk.LEFT, padx=5)
 
-        # Frame para mostrar los productos
-        self.frame_productos = tk.Frame(master, bg="#f0f0f0")
-        self.frame_productos.pack(pady=10, fill='both', expand=True)
+        # Sidebar con botones de acciones
+        tk.Label(self.sidebar_frame, text="Acciones", font=("Arial", 14), bg="#444", fg="white").pack(pady=10)
+        tk.Button(self.sidebar_frame, text="Agregar Producto", command=self.agregar_producto, bg="#4CAF50", fg="white", font=("Arial", 12), width=20).pack(pady=5)
+        tk.Button(self.sidebar_frame, text="Eliminar Producto", command=self.eliminar_producto, bg="#F44336", fg="white", font=("Arial", 12), width=20).pack(pady=5)
+        tk.Button(self.sidebar_frame, text="Agregar Categoría", command=self.agregar_categoria, bg="#2196F3", fg="white", font=("Arial", 12), width=20).pack(pady=5)
 
-    def mostrar_productos(self):
-        # Registrar la vista actual en la pila de navegación
-        self.navigation_stack.append(self.mostrar_productos)
-        self.actualizar_boton_regresar()
+        # Contenido principal
+        self.content_canvas = tk.Canvas(self.content_frame, bg="#f0f0f0")
+        self.scrollbar = tk.Scrollbar(self.content_frame, orient="vertical", command=self.content_canvas.yview)
+        self.scrollable_content = tk.Frame(self.content_canvas, bg="#f0f0f0")
 
-        # Limpiar el frame de productos
-        for widget in self.frame_productos.winfo_children():
-            widget.destroy()
-
-        # Crear un canvas con scrollbar para permitir el scroll
-        canvas = tk.Canvas(self.frame_productos, bg="#f0f0f0")
-        scrollbar = tk.Scrollbar(self.frame_productos, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg="#f0f0f0")
-
-        scrollable_frame.bind(
+        self.scrollable_content.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.content_canvas.configure(scrollregion=self.content_canvas.bbox("all"))
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self.content_canvas.create_window((0, 0), window=self.scrollable_content, anchor="nw")
+        self.content_canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        self.content_canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
 
-        # Conectar a la base de datos
+    def mostrar_productos(self):
+        # Limpiar contenido
+        for widget in self.scrollable_content.winfo_children():
+            widget.destroy()
+
+        # Conectar a la base de datos y obtener productos
         conexion = conectar_db()
         if conexion:
             cursor = conexion.cursor()
-            # Obtener las categorías
-            cursor.execute("SELECT * FROM categorias")
-            categorias = cursor.fetchall()
+            cursor.execute("SELECT p.id_producto, p.nombre, p.precio, p.stock, c.nombre FROM productos p JOIN categorias c ON p.id_categoria = c.id_categoria")
+            productos = cursor.fetchall()
 
-            for categoria in categorias:
-                id_categoria, nombre_categoria = categoria
-                # Mostrar el nombre de la categoría
-                tk.Label(scrollable_frame, text=nombre_categoria, font=("Arial", 14, "bold"), bg="#f0f0f0").pack(anchor="w", pady=10)
+            columnas = 3  # Número de columnas para la cuadrícula
+            for index, producto in enumerate(productos):
+                id_producto, nombre, precio, stock, categoria = producto
 
-                # Obtener los productos de la categoría
-                cursor.execute("SELECT id_producto, nombre, precio, stock FROM productos WHERE id_categoria = %s", (id_categoria,))
-                productos = cursor.fetchall()
+                # Crear la tarjeta del producto
+                card = tk.Frame(self.scrollable_content, borderwidth=1, relief="solid", padx=10, pady=10, bg="white")
+                card.grid(row=index // columnas, column=index % columnas, padx=10, pady=10, sticky="nsew")
 
-                for producto in productos:
-                    id_producto, nombre, precio, stock = producto
-                    # Crear la tarjeta del producto
-                    card = tk.Frame(scrollable_frame, borderwidth=1, relief="solid", padx=10, pady=10, bg="white")
-                    card.pack(pady=5, fill='x')
+                # Información del producto
+                tk.Label(card, text=f"ID: {id_producto}", font=("Arial", 10, "italic"), bg="white").pack(anchor="center", pady=2)
+                tk.Label(card, text=nombre, font=("Arial", 12, "bold"), bg="white").pack(anchor="center", pady=5)
+                tk.Label(card, text=f"Precio: ${precio:.2f}", font=("Arial", 10), bg="white").pack(anchor="center")
+                tk.Label(card, text=f"Stock: {stock}", font=("Arial", 10), bg="white").pack(anchor="center")
+                tk.Label(card, text=f"Categoría: {categoria}", font=("Arial", 10, "italic"), bg="white").pack(anchor="center")
 
-                    # Información del producto
-                    tk.Label(card, text=f"Nombre: {nombre}", font=("Arial", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w")
-                    tk.Label(card, text=f"Precio: ${precio:.2f}", font=("Arial", 12)).grid(row=1, column=0, columnspan=3, sticky="w")
-                    tk.Label(card, text=f"Stock: {stock}", font=("Arial", 12)).grid(row=2, column=0, columnspan=3, sticky="w")
-
-                    # Caja de entrada para cantidad
-                    tk.Label(card, text="Cantidad:", font=("Arial", 10)).grid(row=3, column=0, sticky="e")
-                    cantidad_entry = tk.Entry(card, width=5)
-                    cantidad_entry.insert(0, 0)  # Inicializar en 0
-                    cantidad_entry.grid(row=3, column=1, sticky="w")
-
-                    # Botones para agregar y eliminar
-                    tk.Button(card, text="▲", font=("Arial", 10, "bold"), bg="#4CAF50", fg="white",
-                              command=lambda id_producto=id_producto, cantidad_entry=cantidad_entry: self.agregar_stock(id_producto, cantidad_entry)).grid(row=3, column=2, padx=5)
-                    tk.Button(card, text="▼", font=("Arial", 10, "bold"), bg="#F44336", fg="white",
-                              command=lambda id_producto=id_producto, cantidad_entry=cantidad_entry: self.eliminar_stock(id_producto, cantidad_entry)).grid(row=3, column=3, padx=5)
+                # Botones para editar y eliminar
+                botones_frame = tk.Frame(card, bg="white")
+                botones_frame.pack(anchor="center", pady=5)
+                tk.Button(botones_frame, text="Editar", bg="#FFC107", fg="white", font=("Arial", 10)).pack(side="left", padx=5)
+                tk.Button(botones_frame, text="Eliminar", bg="#F44336", fg="white", font=("Arial", 10)).pack(side="right", padx=5)
 
             cursor.close()
             conexion.close()
@@ -112,33 +101,28 @@ class TiendaAbarrotes:
             messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
 
     def mostrar_categorias(self):
-        # Registrar la vista actual en la pila de navegación
-        self.navigation_stack.append(self.mostrar_categorias)
-        self.actualizar_boton_regresar()
-
-        # Limpiar el frame de productos
-        for widget in self.frame_productos.winfo_children():
+        # Limpiar contenido
+        for widget in self.scrollable_content.winfo_children():
             widget.destroy()
 
-        # Conectar a la base de datos
+        # Conectar a la base de datos y obtener categorías
         conexion = conectar_db()
         if conexion:
             cursor = conexion.cursor()
-            cursor.execute("SELECT id_categoria, nombre FROM categorias")  # Seleccionamos ID y nombre
+            cursor.execute("SELECT id_categoria, nombre FROM categorias")
             categorias = cursor.fetchall()
 
-            for categoria in categorias:
+            columnas = 3  # Número de columnas para la cuadrícula
+            for index, categoria in enumerate(categorias):
                 id_categoria, nombre_categoria = categoria
 
-                # Crear un frame para la categoría
-                card = tk.Frame(self.frame_productos, borderwidth=1, relief="solid", padx=10, pady=10, bg="white")
-                card.pack(pady=5, fill='x')
+                # Crear una tarjeta para cada categoría
+                card = tk.Frame(self.scrollable_content, borderwidth=1, relief="solid", padx=10, pady=10, bg="white")
+                card.grid(row=index // columnas, column=index % columnas, padx=10, pady=10, sticky="nsew")
 
-                # Botón con el nombre de la categoría
-                btn_categoria = tk.Button(card, text=nombre_categoria, font=("Arial", 12),
-                                           bg="white", relief="flat",
-                                           command=lambda id_categoria=id_categoria: self.mostrar_productos_por_categoria(id_categoria))
-                btn_categoria.pack(side="left", padx=10)
+                tk.Label(card, text=nombre_categoria, font=("Arial", 12, "bold"), bg="white").pack(anchor="center", pady=5)
+                tk.Button(card, text="Ver Productos", bg="#4CAF50", fg="white", font=("Arial", 10),
+                          command=lambda id_categoria=id_categoria: self.mostrar_productos_por_categoria(id_categoria)).pack(anchor="center", pady=5)
 
             cursor.close()
             conexion.close()
@@ -146,77 +130,94 @@ class TiendaAbarrotes:
             messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
 
     def mostrar_productos_por_categoria(self, id_categoria):
-        # Registrar la vista actual en la pila de navegación
-        self.navigation_stack.append(lambda: self.mostrar_productos_por_categoria(id_categoria))
-        self.actualizar_boton_regresar()
-
-        # Limpiar el frame de productos
-        for widget in self.frame_productos.winfo_children():
+        # Limpiar contenido
+        for widget in self.scrollable_content.winfo_children():
             widget.destroy()
 
-        # Conectar a la base de datos
+        # Conectar a la base de datos y obtener productos de la categoría
         conexion = conectar_db()
         if conexion:
             cursor = conexion.cursor()
             cursor.execute("SELECT nombre, precio, stock FROM productos WHERE id_categoria = %s", (id_categoria,))
             productos = cursor.fetchall()
 
-            for producto in productos:
+            columnas = 3  # Número de columnas para la cuadrícula
+            for index, producto in enumerate(productos):
                 nombre, precio, stock = producto
-                # Crear la tarjeta del producto
-                card = tk.Frame(self.frame_productos, borderwidth=1, relief="solid", padx=10, pady=10, bg="white")
-                card.pack(pady=5, fill='x')
 
-                # Información del producto
-                tk.Label(card, text=f"Nombre: {nombre}", font=("Arial", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w")
-                tk.Label(card, text=f"Precio: ${precio:.2f}", font=("Arial", 12)).grid(row=1, column=0, columnspan=3, sticky="w")
-                tk.Label(card, text=f"Stock: {stock}", font=("Arial", 12)).grid(row=2, column=0, columnspan=3, sticky="w")
+                # Crear la tarjeta del producto
+                card = tk.Frame(self.scrollable_content, borderwidth=1, relief="solid", padx=10, pady=10, bg="white")
+                card.grid(row=index // columnas, column=index % columnas, padx=10, pady=10, sticky="nsew")
+
+                tk.Label(card, text=nombre, font=("Arial", 12, "bold"), bg="white").pack(anchor="center", pady=5)
+                tk.Label(card, text=f"Precio: ${precio:.2f}", font=("Arial", 10), bg="white").pack(anchor="center")
+                tk.Label(card, text=f"Stock: {stock}", font=("Arial", 10), bg="white").pack(anchor="center")
 
             cursor.close()
             conexion.close()
         else:
             messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
 
-    def regresar(self):
-        if len(self.navigation_stack) > 1:
-            # Eliminar la vista actual de la pila
-            self.navigation_stack.pop()
-            # Obtener la vista anterior
-            vista_anterior = self.navigation_stack[-1]
-            # Mostrar la vista anterior
-            vista_anterior()
-        self.actualizar_boton_regresar()
-
-    def actualizar_boton_regresar(self):
-        # Habilitar o deshabilitar el botón de regresar según la pila de navegación
-        if len(self.navigation_stack) > 1:
-            self.boton_regresar.config(state="normal")
-        else:
-            self.boton_regresar.config(state="disabled")
-
     def agregar_producto(self):
         # Ventana para agregar producto
-        self.ventana_agregar = tk.Toplevel(self.master)
-        self.ventana_agregar.title("Agregar Producto")
-        tk.Label(self.ventana_agregar, text="Nombre:").grid(row=0, column=0)
-        self.entry_nombre = tk.Entry(self.ventana_agregar)
-        self.entry_nombre.grid(row=0, column=1)
-        tk.Label(self.ventana_agregar, text="Precio:").grid(row=1, column=0)
-        self.entry_precio = tk.Entry(self.ventana_agregar)
-        self.entry_precio.grid(row=1, column=1)
-        tk.Label(self.ventana_agregar, text="Stock:").grid(row=2, column=0)
-        self.entry_stock = tk.Entry(self.ventana_agregar)
-        self.entry_stock.grid(row=2, column=1)
-        tk.Label(self.ventana_agregar, text="Categoría ID:").grid(row=3, column=0)
-        self.entry_categoria_id = tk.Entry(self.ventana_agregar)
-        self.entry_categoria_id.grid(row=3, column=1)
-        tk.Button(self.ventana_agregar, text="Agregar", command=self.guardar_producto).grid(row=4, columnspan=2)
+        ventana = tk.Toplevel(self.master)
+        ventana.title("Agregar Producto")
+        ventana.geometry("400x300")
+        ventana.configure(bg="#f0f0f0")
+
+        tk.Label(ventana, text="Nombre:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, pady=10, padx=10, sticky="w")
+        self.entry_nombre = tk.Entry(ventana, font=("Arial", 12), width=25)
+        self.entry_nombre.grid(row=0, column=1, pady=10, padx=10)
+
+        tk.Label(ventana, text="Precio:", font=("Arial", 12), bg="#f0f0f0").grid(row=1, column=0, pady=10, padx=10, sticky="w")
+        self.entry_precio = tk.Entry(ventana, font=("Arial", 12), width=25)
+        self.entry_precio.grid(row=1, column=1, pady=10, padx=10)
+
+        tk.Label(ventana, text="Stock:", font=("Arial", 12), bg="#f0f0f0").grid(row=2, column=0, pady=10, padx=10, sticky="w")
+        self.entry_stock = tk.Entry(ventana, font=("Arial", 12), width=25)
+        self.entry_stock.grid(row=2, column=1, pady=10, padx=10)
+
+        tk.Label(ventana, text="Categoría:", font=("Arial", 12), bg="#f0f0f0").grid(row=3, column=0, pady=10, padx=10, sticky="w")
+
+        # Obtener categorías de la base de datos
+        conexion = conectar_db()
+        if conexion:
+            cursor = conexion.cursor()
+            cursor.execute("SELECT id_categoria, nombre FROM categorias")
+            self.categorias = cursor.fetchall()
+            cursor.close()
+            conexion.close()
+
+        # Crear un menú desplegable para seleccionar la categoría
+        self.categoria_seleccionada = tk.StringVar(ventana)
+        self.categoria_seleccionada.set(self.categorias[0][1])  # Seleccionar la primera categoría por defecto
+        opciones_categorias = [categoria[1] for categoria in self.categorias]
+        tk.OptionMenu(ventana, self.categoria_seleccionada, *opciones_categorias).grid(row=3, column=1, pady=10, padx=10)
+
+        tk.Button(ventana, text="Guardar", bg="#4CAF50", fg="white", font=("Arial", 12), command=self.guardar_producto).grid(row=4, column=0, columnspan=2, pady=20)
+
+    def agregar_categoria(self):
+        # Ventana para agregar categoría
+        ventana = tk.Toplevel(self.master)
+        ventana.title("Agregar Categoría")
+        ventana.geometry("300x200")
+        ventana.configure(bg="#f0f0f0")
+
+        tk.Label(ventana, text="Nombre de la Categoría:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, pady=10, padx=10, sticky="w")
+        self.entry_nombre_categoria = tk.Entry(ventana, font=("Arial", 12), width=25)
+        self.entry_nombre_categoria.grid(row=0, column=1, pady=10, padx=10)
+
+        tk.Button(ventana, text="Guardar", bg="#4CAF50", fg="white", font=("Arial", 12), command=self.guardar_categoria).grid(row=1, column=0, columnspan=2, pady=20)
 
     def guardar_producto(self):
         nombre = self.entry_nombre.get()
         precio = float(self.entry_precio.get())
         stock = int(self.entry_stock.get())
-        categoria_id = int(self.entry_categoria_id.get())
+
+        # Obtener el ID de la categoría seleccionada
+        categoria_nombre = self.categoria_seleccionada.get()
+        categoria_id = next(categoria[0] for categoria in self.categorias if categoria[1] == categoria_nombre)
+
         conexion = conectar_db()
         if conexion:
             cursor = conexion.cursor()
@@ -226,30 +227,77 @@ class TiendaAbarrotes:
             cursor.close()
             conexion.close()
             messagebox.showinfo("Éxito", "Producto agregado exitosamente.")
-            self.ventana_agregar.destroy()
+        else:
+            messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
+
+    def guardar_categoria(self):
+        nombre_categoria = self.entry_nombre_categoria.get()
+        conexion = conectar_db()
+        if conexion:
+            cursor = conexion.cursor()
+            cursor.execute("INSERT INTO categorias (nombre) VALUES (%s)", (nombre_categoria,))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            messagebox.showinfo("Éxito", "Categoría agregada exitosamente.")
         else:
             messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
 
     def eliminar_producto(self):
         # Ventana para eliminar producto
-        self.ventana_eliminar = tk.Toplevel(self.master)
-        self.ventana_eliminar.title("Eliminar Producto")
-        tk.Label(self.ventana_eliminar, text="ID del Producto a Eliminar:").grid(row=0, column=0)
-        self.entry_id_producto = tk.Entry(self.ventana_eliminar)
-        self.entry_id_producto.grid(row=0, column=1)
-        tk.Button(self.ventana_eliminar, text="Eliminar", command=self.confirmar_eliminar).grid(row=1, columnspan=2)
+        ventana = tk.Toplevel(self.master)
+        ventana.title("Eliminar Producto")
+        ventana.geometry("400x200")
+        ventana.configure(bg="#f0f0f0")
 
-    def confirmar_eliminar(self):
-        id_producto = int(self.entry_id_producto.get())
+        tk.Label(ventana, text="Selecciona el Producto a Eliminar:", font=("Arial", 12), bg="#f0f0f0").grid(row=0, column=0, pady=10, padx=10, sticky="w")
+
+        # Obtener productos de la base de datos
         conexion = conectar_db()
         if conexion:
             cursor = conexion.cursor()
-            cursor.execute("DELETE FROM productos WHERE id_producto = %s", (id_producto,))
-            conexion.commit()
+            cursor.execute("SELECT id_producto, nombre FROM productos")
+            productos = cursor.fetchall()
             cursor.close()
             conexion.close()
-            messagebox.showinfo("Éxito", "Producto eliminado exitosamente.")
-            self.ventana_eliminar.destroy()
+
+            # Crear un menú desplegable para seleccionar el producto
+            self.producto_seleccionado = tk.StringVar(ventana)
+            self.producto_seleccionado.set(productos[0][1])  # Seleccionar el primer producto por defecto
+            opciones_productos = [f"{producto[1]} (ID: {producto[0]})" for producto in productos]
+            tk.OptionMenu(ventana, self.producto_seleccionado, *opciones_productos).grid(row=0, column=1, pady=10, padx=10)
+
+            tk.Button(ventana, text="Eliminar", bg="#F44336", fg="white", font=("Arial", 12),
+                      command=lambda: self.confirmar_eliminar(ventana, productos)).grid(row=1, column=0, columnspan=2, pady=20)
+        else:
+            messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
+
+    def confirmar_eliminar(self, ventana, productos):
+        # Obtener el ID del producto seleccionado
+        producto_nombre = self.producto_seleccionado.get()
+        try:
+            producto_id = next(producto[0] for producto in productos if f"{producto[1]} (ID: {producto[0]})" == producto_nombre)
+        except StopIteration:
+            messagebox.showerror("Error", "No se pudo encontrar el producto seleccionado.")
+            return
+
+        conexion = conectar_db()
+        if conexion:
+            cursor = conexion.cursor()
+            try:
+                # Eliminar registros relacionados en la tabla ventas
+                cursor.execute("DELETE FROM ventas WHERE id_producto = %s", (producto_id,))
+                # Eliminar el producto
+                cursor.execute("DELETE FROM productos WHERE id_producto = %s", (producto_id,))
+                conexion.commit()
+                messagebox.showinfo("Éxito", "Producto eliminado exitosamente.")
+                ventana.destroy()
+                self.mostrar_productos()  # Refrescar la vista de productos
+            except mysql.connector.Error as e:
+                messagebox.showerror("Error", f"No se pudo eliminar el producto: {e}")
+            finally:
+                cursor.close()
+                conexion.close()
         else:
             messagebox.showerror("Error", "No se pudo conectar a la base de datos.")
 
